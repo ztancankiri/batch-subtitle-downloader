@@ -1,6 +1,7 @@
 import com.github.wtekiela.opensub4j.api.OpenSubtitlesClient;
 import com.github.wtekiela.opensub4j.impl.OpenSubtitlesClientImpl;
 import com.github.wtekiela.opensub4j.response.*;
+import org.apache.commons.cli.*;
 import org.apache.xmlrpc.XmlRpcException;
 
 import java.io.*;
@@ -17,36 +18,81 @@ import java.util.zip.GZIPInputStream;
 public class Main {
 
     public static void main(String[] args) throws IOException, XmlRpcException {
-        URL serverUrl = new URL("https", "api.opensubtitles.org", 443, "/xml-rpc");
-        OpenSubtitlesClient osClient = new OpenSubtitlesClientImpl(serverUrl);
 
-        Response response = osClient.login("doyog72244", "123456789", "en", "TemporaryUserAgent");
+        Options options = new Options();
 
-        if (response.getStatus().getCode() != ResponseStatus.OK.getCode()) {
-            System.err.println("Error while connecting to the server!");
-            return;
-        }
+        options.addOption(Option.builder("e")
+                .longOpt("extension")
+                .argName("video extension")
+                .hasArg()
+                .desc("The extension of video files.")
+                .required()
+                .build());
 
-        if (!osClient.isLoggedIn()) {
-            System.err.println("Error while logging in!");
-            return;
-        }
+        options.addOption(Option.builder("l")
+                .longOpt("language")
+                .argName("subtitle language")
+                .hasArg()
+                .desc("The language of the subtitles.")
+                .required()
+                .build());
 
-        String rootPath = args[1];
-        File directory = new File(rootPath);
+        options.addOption(Option.builder("d")
+                .longOpt("directory")
+                .argName("root directory")
+                .hasArg()
+                .desc("The path for the root directory of the episodes.")
+                .required()
+                .build());
 
-        for (File fileEntry : Objects.requireNonNull(directory.listFiles())) {
-            String fileName = fileEntry.getName();
-            if (fileName.contains(".mp4")) {
-                String baseFileName = fileName.replace(".mp4", "");
-                Path newDir = Files.createDirectory(Paths.get(rootPath, baseFileName));
-                Files.move(Paths.get(rootPath, fileName), Paths.get(String.valueOf(newDir), fileName));
-                String newFilePath = String.valueOf(Paths.get(String.valueOf(newDir), fileName));
-                downloadSubtitle(osClient, args[0], newFilePath);
+        CommandLineParser parser = new DefaultParser();
+
+        try {
+            CommandLine cmd = parser.parse(options, args);
+
+            if (cmd.getOptions().length < 2) {
+                HelpFormatter formatter = new HelpFormatter();
+                formatter.printHelp("batch-subtitle-downloader", options);
+                return;
             }
-        }
 
-        osClient.logout();
+            String extension = cmd.getOptionValue("extension");
+            String language = cmd.getOptionValue("language");
+            String rootPath = cmd.getOptionValue("directory");
+
+            URL serverUrl = new URL("https", "api.opensubtitles.org", 443, "/xml-rpc");
+            OpenSubtitlesClient osClient = new OpenSubtitlesClientImpl(serverUrl);
+
+            Response response = osClient.login("doyog72244", "123456789", "en", "TemporaryUserAgent");
+
+            if (response.getStatus().getCode() != ResponseStatus.OK.getCode()) {
+                System.err.println("Error while connecting to the server!");
+                return;
+            }
+
+            if (!osClient.isLoggedIn()) {
+                System.err.println("Error while logging in!");
+                return;
+            }
+
+            File directory = new File(rootPath);
+
+            for (File fileEntry : Objects.requireNonNull(directory.listFiles())) {
+                String fileName = fileEntry.getName();
+                if (fileName.contains(extension)) {
+                    String baseFileName = fileName.replace(extension, "");
+                    Path newDir = Files.createDirectory(Paths.get(rootPath, baseFileName));
+                    Files.move(Paths.get(rootPath, fileName), Paths.get(String.valueOf(newDir), fileName));
+                    String newFilePath = String.valueOf(Paths.get(String.valueOf(newDir), fileName));
+                    downloadSubtitle(osClient, language, newFilePath);
+                }
+            }
+
+            osClient.logout();
+        } catch (ParseException e) {
+            HelpFormatter formatter = new HelpFormatter();
+            formatter.printHelp("batch-subtitle-downloader", options);
+        }
     }
 
     private static void downloadSubtitle(OpenSubtitlesClient client, String language, String videoFilePath) throws IOException, XmlRpcException {
